@@ -23,15 +23,14 @@ class AdyenDropInPayment: RCTEventEmitter {
   func requiresMainQueueSetup() -> Bool {
     return true
   }
-  var customCardComponent:CustomCardComponent?
   var dropInComponent: DropInComponent?
-  var cardComponent: CardComponent?
   var threeDS2Component: ThreeDS2Component?
   var publicKey: String?
-  var env: Environment?
   var isDropIn:Bool?
   var envName: String?
   var configuration: DropInComponent.PaymentMethodsConfiguration?
+  var payment: Payment?
+
   override func supportedEvents() -> [String]! {
     return [
       "onPaymentFail",
@@ -42,48 +41,50 @@ class AdyenDropInPayment: RCTEventEmitter {
 }
 
 extension AdyenDropInPayment: DropInComponentDelegate {
-  @objc func configPayment(_ publicKey: String, env: String) {
-    configuration = DropInComponent.PaymentMethodsConfiguration()
-    configuration?.card.publicKey = publicKey
-    self.publicKey = publicKey
-    configuration?.card.showsStorePaymentMethodField = false
-    envName = env
-    switch env {
-    case "live":
-      self.env = .live
-    default:
-      self.env = .test
-    }
-  }
-   @objc func encryptCard(_ cardNumber: String,expiryMonth:Int, expiryYear:Int,securityCode:String,resolver resolve: RCTPromiseResolveBlock, rejecter reject: RCTPromiseRejectBlock)  {
-       let card = CardEncryptor.Card(number: cardNumber,
-                                     securityCode: securityCode,
-                                     expiryMonth:  String(expiryMonth),
-                                     expiryYear: "20" + String(expiryYear))
-     let encryptedCard = CardEncryptor.encryptedCard(for: card, publicKey: self.publicKey!)
-     
-     let resultMap:Dictionary? = [
-       "encryptedNumber":encryptedCard.number,
-       "encryptedExpiryMonth":encryptedCard.expiryMonth,
-       "encryptedExpiryYear":encryptedCard.expiryYear,
-       "encryptedSecurityCode":encryptedCard.securityCode,
-     ]
-     resolve(resultMap)
-   }
-
-  @objc func paymentMethods(_ paymentMethodsJson: String) {
+  @objc func paymentMethods(_ paymentMethodsJson: NSDictionary, config: NSDictionary) {
     self.isDropIn = true
-    let jsonData: Data? = paymentMethodsJson.data(using: String.Encoding.utf8) ?? Data()
-    let paymentMethods: PaymentMethods? = try? JSONDecoder().decode(PaymentMethods.self, from: jsonData!)
+    var paymentMethods: PaymentMethods?
+    do {
+        let jsonData = try! JSONSerialization.data(withJSONObject : paymentMethodsJson, options: .prettyPrinted)
+        paymentMethods = try Coder.decode(jsonData) as PaymentMethods
+    } catch {}
+
+    buildConfig(config)
+
     let dropInComponent = DropInComponent(paymentMethods: paymentMethods!,
                                           paymentMethodsConfiguration: configuration!)
     self.dropInComponent = dropInComponent
     dropInComponent.delegate = self
-    dropInComponent.environment = self.env!
+    dropInComponent.environment = configuration!.environment
+    dropInComponent.payment = payment
 
     dispatch {
       UIApplication.shared.delegate?.window??.rootViewController!.present(dropInComponent.viewController, animated: true)
     }
+  }
+
+  func buildConfig(_ config: NSDictionary) {
+    let configuration = DropInComponent.PaymentMethodsConfiguration()
+    self.configuration = configuration
+
+    let env = config["environment"] as? String ?? "test"
+    if (env == "liveEurope") { configuration.environment = Environment.liveEurope }
+    else if (env == "liveUnitedStates") { configuration.environment = Environment.liveUnitedStates }
+    else if (env == "liveAustralia") { configuration.environment = Environment.liveAustralia }
+    else { configuration.environment = Environment.test }
+
+    configuration.clientKey = config["clientKey"] as? String
+
+    let scheme: [String:Any] = config["scheme"] as? [String:Any] ?? [:]
+    configuration.card.showsHolderNameField = scheme["showsHolderNameField"] as? Bool ?? false
+    configuration.card.showsStorePaymentMethodField = scheme["showsStorePaymentMethodField"] as? Bool ?? false
+
+    let applePay: [String:Any] = config["applePay"] as? [String:Any] ?? [:]
+    configuration.applePay.merchantIdentifier = applePay["merchantIdentifier"] as? String
+
+    let amountDict: [String:Any] = config["amount"] as? [String:Any] ?? [:]
+    let amount = Payment.Amount(value: amountDict["value"] as! Int, currencyCode: amountDict["currency"] as! String)
+    payment = Payment(amount: amount)
   }
 
   func didSubmit(_ data: PaymentComponentData, from component: DropInComponent) {
@@ -140,104 +141,12 @@ extension AdyenDropInPayment: DropInComponentDelegate {
 }
 
 extension AdyenDropInPayment: PaymentComponentDelegate {
-  func getStoredCardPaymentMethod(_ paymentMethods: PaymentMethods, index: Int) -> StoredCardPaymentMethod {
-    var paymentMethod: StoredCardPaymentMethod?
-    if paymentMethods.stored.count == 1 {
-      return paymentMethods.stored[0] as! StoredCardPaymentMethod
-    }
-    if paymentMethods.stored.count > 1 {
-      paymentMethod = paymentMethods.stored[index] as! StoredCardPaymentMethod
-    }
-    return paymentMethod!
-  }
-
-  func getCardPaymentMethodByName(_ paymentMethods: PaymentMethods, name _: String) -> CardPaymentMethod {
-    var paymentMethod: CardPaymentMethod?
-    if paymentMethods.regular.count == 1 {
-      return paymentMethods.regular[0] as! CardPaymentMethod
-    }
-    if paymentMethods.regular.count > 1 {
-      for p in paymentMethods.regular {
-        if p.name == "Credit Card" {
-          paymentMethod = (p as! CardPaymentMethod)
-          break
-        }
-      }
-    }
-    return paymentMethod!
-  }
-
-  @objc func storedCardPaymentMethod(_ paymentMethodsJson: String, index: Int) {
-    self.isDropIn = false
-    self.threeDS2Component = nil
-    self.cardComponent?.viewController.dismiss(animated: true)
-    let jsonData: Data? = paymentMethodsJson.data(using: String.Encoding.utf8) ?? Data()
-    let paymentMethods: PaymentMethods? = try? JSONDecoder().decode(PaymentMethods.self, from: jsonData!)
-    let cardPaymentMethod: StoredCardPaymentMethod? = self.getStoredCardPaymentMethod(paymentMethods!, index: index)
-    let cardComponent = CardComponent(paymentMethod: cardPaymentMethod!,
-                                      publicKey: self.publicKey!)
-    self.cardComponent = cardComponent
-    // Replace CardComponent with the payment method Component that you want to add.
-    // Check specific payment method pages to confirm if you need to configure additional required parameters.
-    // For example, to enable the Card form, you need to provide your Client Encryption Public Key.
-    cardComponent.delegate = self
-    cardComponent.environment = env!
-    // When you're ready to go live, change this to .live
-    // or to other environment values described in https://adyen.github.io/adyen-ios/Docs/Structs/Environment.html
-    dispatch { UIApplication.shared.delegate?.window??.rootViewController!.present(cardComponent.viewController, animated: true)
-    }
-  }
-  @objc func contractPaymentMethod(_ paymentMethodsJson: String,index: Int) {
-    self.isDropIn = false
-    self.threeDS2Component = nil
-    let jsonData: Data? = paymentMethodsJson.data(using: String.Encoding.utf8) ?? Data()
-    let paymentMethods:PaymentMethods? = try? JSONDecoder().decode(PaymentMethods.self, from: jsonData!)
-    let cardPaymentMethod:StoredCardPaymentMethod? = self.getStoredCardPaymentMethod(paymentMethods!,index: index)
-    var paymentMethodMap:Dictionary? = ["type": "scheme","recurringDetailReference":cardPaymentMethod?.identifier]
-    let resultData = ["paymentMethod":paymentMethodMap,"storePaymentMethod":true] as [String : Any]
-   self.sendEvent(
-     withName: "onPaymentSubmit",
-     body: [
-       "isDropIn":self.isDropIn,
-       "env":self.envName,
-       "data": resultData
-     ]
-   )
-  }
-    
-
-    @objc func cardPaymentMethod(_ paymentMethodsJson: String, name: String, showHolderField: Bool, showStoreField: Bool,buttonTitle: String) {
-    self.isDropIn = false
-    self.threeDS2Component = nil
-    self.customCardComponent?.viewController.dismiss(animated: true)
-    let jsonData: Data? = paymentMethodsJson.data(using: String.Encoding.utf8) ?? Data()
-    let paymentMethods: PaymentMethods? = try? JSONDecoder().decode(PaymentMethods.self, from: jsonData!)
-    let cardPaymentMethod: CardPaymentMethod? = self.getCardPaymentMethodByName(paymentMethods!, name: name)
-
-    let cardComponent = CustomCardComponent(paymentMethod:cardPaymentMethod!,
-                                            publicKey: self.publicKey!,buttonTitle: buttonTitle)
-    self.customCardComponent = cardComponent
-    self.customCardComponent!.showsStorePaymentMethodField = showStoreField
-    self.customCardComponent!.showsHolderNameField = showHolderField
-    self.customCardComponent!.delegate = self
-    self.customCardComponent!.environment = self.env!
-    
-    // When you're ready to go live, change this to .live
-    // or to other environment values described in https://adyen.github.io/adyen-ios/Docs/Structs/Environment.html
-    dispatch {
-      UIApplication.shared.delegate?.window??.rootViewController!.present(cardComponent.viewController, animated: true)
-    }
-  }
-
   /// Invoked when the payment component finishes, typically by a user submitting their payment details.
   ///
   /// - Parameters:
   ///   - data: The data supplied by the payment component.
   ///   - component: The payment component from which the payment details were submitted.
   func didSubmit(_ data: PaymentComponentData, from _: PaymentComponent) {
-    self.cardComponent?.viewController.dismiss(animated: true)
-    self.customCardComponent?.viewController.dismiss(animated: true)
-
     var paymentMethodMap: Dictionary? = data.paymentMethod.dictionaryRepresentation
     paymentMethodMap!["recurringDetailReference"] = paymentMethodMap!["storedPaymentMethodId"]
     let resultData = ["paymentMethod": paymentMethodMap, "storePaymentMethod": data.storePaymentMethod] as [String: Any]
@@ -258,9 +167,6 @@ extension AdyenDropInPayment: PaymentComponentDelegate {
   ///   - error: The error that occurred.
   ///   - component: The payment component that failed.
   func didFail(with error: Error, from _: PaymentComponent) {
-    cardComponent?.viewController.dismiss(animated: true)
-    customCardComponent?.viewController.dismiss(animated: true)
-
     sendEvent(
       withName: "onPaymentFail",
       body: [

@@ -16,7 +16,6 @@ import com.adyen.checkout.base.PaymentComponentState;
 import com.adyen.checkout.base.component.BaseActionComponent;
 import com.adyen.checkout.base.model.PaymentMethodsApiResponse;
 import com.adyen.checkout.base.model.paymentmethods.PaymentMethod;
-import com.adyen.checkout.base.model.paymentmethods.RecurringDetail;
 import com.adyen.checkout.base.model.payments.request.PaymentMethodDetails;
 import com.adyen.checkout.base.model.payments.response.Action;
 import com.adyen.checkout.base.model.payments.response.QrCodeAction;
@@ -24,8 +23,11 @@ import com.adyen.checkout.base.model.payments.response.RedirectAction;
 import com.adyen.checkout.base.model.payments.response.Threeds2ChallengeAction;
 import com.adyen.checkout.base.model.payments.response.Threeds2FingerprintAction;
 import com.adyen.checkout.base.model.payments.response.VoucherAction;
+import com.adyen.checkout.base.model.payments.Amount;
+import com.adyen.checkout.base.util.PaymentMethodTypes;
 import com.adyen.checkout.card.CardComponent;
 import com.adyen.checkout.card.CardConfiguration;
+import com.adyen.checkout.googlepay.GooglePayConfiguration;
 import com.adyen.checkout.core.api.Environment;
 import com.adyen.checkout.cse.Card;
 import com.adyen.checkout.cse.EncryptedCard;
@@ -35,6 +37,7 @@ import com.adyen.checkout.dropin.DropInConfiguration;
 import com.adyen.checkout.dropin.service.CallResult;
 import com.adyen.checkout.redirect.RedirectComponent;
 import com.adyen.checkout.redirect.RedirectUtil;
+import com.google.android.gms.wallet.WalletConstants;
 import com.facebook.react.bridge.*;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
@@ -53,13 +56,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AdyenDropInPayment extends ReactContextBaseJavaModule {
-    CardConfiguration cardConfiguration;
     DropInConfiguration dropInConfiguration;
     RedirectComponent redirectComponent;
     Adyen3DS2Component adyen3DS2Component;
-    String publicKey;
     Environment environment;
-    String envName;
     boolean isDropIn;
     static Map<String, BaseActionComponent> ACTION_COMPONENT_MAP = new ConcurrentHashMap<>();
     public static AdyenDropInPaymentService dropInService;
@@ -122,158 +122,142 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
 
     }
 
-    @ReactMethod
-    public void configPayment(String publicKey, String env) {
-        this.publicKey = publicKey;
-        this.envName = env;
-        if (env == null || env.trim().length() <= 0) {
-            environment = Environment.TEST;
-        } else {
-            if (env.equalsIgnoreCase("test")) {
-                environment = Environment.TEST;
-            } else {
-                environment = Environment.EUROPE;
+    public static JSONObject convertMapToJson(ReadableMap readableMap) throws JSONException {
+        JSONObject object = new JSONObject();
+        ReadableMapKeySetIterator iterator = readableMap.keySetIterator();
+        while (iterator.hasNextKey()) {
+            String key = iterator.nextKey();
+            switch (readableMap.getType(key)) {
+                case Null:
+                    object.put(key, JSONObject.NULL);
+                    break;
+                case Boolean:
+                    object.put(key, readableMap.getBoolean(key));
+                    break;
+                case Number:
+                    object.put(key, readableMap.getDouble(key));
+                    break;
+                case String:
+                    object.put(key, readableMap.getString(key));
+                    break;
+                case Map:
+                    object.put(key, convertMapToJson(readableMap.getMap(key)));
+                    break;
+                case Array:
+                    object.put(key, convertArrayToJson(readableMap.getArray(key)));
+                    break;
             }
         }
+        return object;
+    }
 
+    public static JSONArray convertArrayToJson(ReadableArray readableArray) throws JSONException {
+        JSONArray array = new JSONArray();
+        for (int i = 0; i < readableArray.size(); i++) {
+            switch (readableArray.getType(i)) {
+                case Null:
+                    break;
+                case Boolean:
+                    array.put(readableArray.getBoolean(i));
+                    break;
+                case Number:
+                    array.put(readableArray.getDouble(i));
+                    break;
+                case String:
+                    array.put(readableArray.getString(i));
+                    break;
+                case Map:
+                    array.put(convertMapToJson(readableArray.getMap(i)));
+                    break;
+                case Array:
+                    array.put(convertArrayToJson(readableArray.getArray(i)));
+                    break;
+            }
+        }
+        return array;
+    }
+
+    void buildConfig(ReadableMap configuration) throws JSONException {
+        JSONObject config = convertMapToJson(configuration);
+        Intent resultIntent = new Intent(this.getCurrentActivity(), this.getCurrentActivity().getClass());
+        resultIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        DropInConfiguration.Builder builder = new DropInConfiguration.Builder(this.getCurrentActivity(), resultIntent, AdyenDropInPaymentService.class);
+
+        Environment env = Environment.TEST;
+        try {
+            String environment = config.getString("environment");
+            if (environment == "liveEurope") env = Environment.EUROPE;
+            else if (environment == "liveAustralia") env = Environment.AUSTRALIA;
+            else if (environment == "liveUnitedStates") env = Environment.UNITED_STATES;
+        } catch (JSONException e) {}
+        builder.setEnvironment(Environment.TEST);
+
+        Locale locale = Locale.getDefault();
+        try {
+            String[] shopperLocale = config.getString("shopperLocale").split("_");
+            locale = new Locale(shopperLocale[0], shopperLocale[1]);
+        } catch (JSONException e) {}
+        builder.setShopperLocale(locale);
+
+        try {
+            JSONObject amountJson = config.getJSONObject("amount");
+            Amount amount = Amount.SERIALIZER.deserialize(amountJson);
+            builder.setAmount(amount);
+        } catch (JSONException e) {}
+
+        String clientKey = null;
+        try {
+            clientKey = config.getString("clientKey");
+            builder.setClientKey(clientKey);
+        } catch (JSONException e) {}
+
+        CardConfiguration.Builder cardConfigBuilder = new CardConfiguration.Builder(locale, env);
+        if (clientKey != null) {
+            cardConfigBuilder.setClientKey(clientKey);
+        }
+        try {
+            String publicKey = config.getJSONObject(PaymentMethodTypes.SCHEME).getString("publicKey");
+            cardConfigBuilder.setPublicKey(publicKey);
+        } catch (JSONException e) {}
+        try {
+            Boolean showsHolderNameField = config.getJSONObject(PaymentMethodTypes.SCHEME).getBoolean("showsHolderNameField");
+            cardConfigBuilder.setHolderNameRequire(showsHolderNameField);
+        } catch (JSONException e) {}
+        try {
+            Boolean showsStorePaymentMethodField = config.getJSONObject(PaymentMethodTypes.SCHEME).getBoolean("showsStorePaymentMethodField");
+            cardConfigBuilder.setShowStorePaymentField(showsStorePaymentMethodField);
+        } catch (JSONException e) {}
+        builder.addCardConfiguration(cardConfigBuilder.build());
+
+        try {
+            String merchantAccount = config.getString("merchantAccount");
+            GooglePayConfiguration.Builder googlePayConfigBuilder = new GooglePayConfiguration.Builder(locale, env, merchantAccount);
+            if (env == Environment.TEST) {
+                googlePayConfigBuilder.setGooglePayEnvironment(WalletConstants.ENVIRONMENT_TEST);
+            } else {
+                googlePayConfigBuilder.setGooglePayEnvironment(WalletConstants.ENVIRONMENT_PRODUCTION);
+            }
+            builder.addGooglePayConfiguration(googlePayConfigBuilder.build());
+        } catch (JSONException e) {}
+
+        dropInConfiguration = builder.build();
     }
 
     @ReactMethod
-    public void paymentMethods(String paymentMethodsJson) {
+    public void paymentMethods(ReadableMap paymentMethodsJson, ReadableMap config) throws JSONException {
         isDropIn = true;
-        CardConfiguration cardConfiguration =
-                new CardConfiguration.Builder(Locale.getDefault(), environment, publicKey)
-                        .build();
-        this.cardConfiguration = cardConfiguration;
-        Intent resultIntent = new Intent(this.getCurrentActivity(), this.getCurrentActivity().getClass());
-        resultIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        this.dropInConfiguration = new DropInConfiguration.Builder(this.getCurrentActivity(), resultIntent, AdyenDropInPaymentService.class).addCardConfiguration(cardConfiguration).build();
-        JSONObject jsonObject = null;
-        try {
-            Log.i("string", paymentMethodsJson);
-            jsonObject = new JSONObject(paymentMethodsJson);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
+        buildConfig(config);
+
+        JSONObject jsonObject = convertMapToJson(paymentMethodsJson);
         PaymentMethodsApiResponse paymentMethodsApiResponse = PaymentMethodsApiResponse.SERIALIZER.deserialize(jsonObject);
         final AdyenDropInPayment adyenDropInPayment = this;
         this.getCurrentActivity().runOnUiThread(new Runnable() {
-
             @Override
             public void run() {
                 DropIn.startPayment(adyenDropInPayment.getCurrentActivity(), paymentMethodsApiResponse, dropInConfiguration);
             }
         });
-
     }
-
-    @ReactMethod
-    public void encryptCard(String cardNumber, Integer expiryMonth, Integer expiryYear, String securityCode, final Promise promise) {
-        Card.Builder cardBuilder = new Card.Builder();
-        cardBuilder.setNumber(cardNumber).setExpiryDate(expiryMonth, expiryYear);
-        cardBuilder.setSecurityCode(securityCode);
-        Card card = cardBuilder.build();
-        final EncryptedCard encryptedCard = Encryptor.INSTANCE.encryptFields(card, this.publicKey);
-        WritableMap resultMap = new WritableNativeMap();
-        resultMap.putString("encryptedNumber", encryptedCard.getEncryptedNumber());
-        resultMap.putString("encryptedExpiryMonth", encryptedCard.getEncryptedExpiryMonth());
-        resultMap.putString("encryptedExpiryYear", encryptedCard.getEncryptedExpiryYear());
-        resultMap.putString("encryptedSecurityCode", "20" + encryptedCard.getEncryptedSecurityCode());
-        promise.resolve(resultMap);
-    }
-
-
-    @ReactMethod
-    public void cardPaymentMethod(String paymentMethodsJson, String name, Boolean showHolderField, Boolean showStoreField, String buttonTitle) {
-        isDropIn = false;
-        final AdyenDropInPayment adyenDropInPayment = this;
-        JSONObject jsonObject = null;
-        try {
-            jsonObject = new JSONObject(paymentMethodsJson);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        CardConfiguration cardConfiguration =
-                new CardConfiguration.Builder(Locale.getDefault(), environment, publicKey).setHolderNameRequire(showHolderField).setShowStorePaymentField(showStoreField)
-                        .build();
-        this.cardConfiguration = cardConfiguration;
-        PaymentMethodsApiResponse paymentMethodsApiResponse = PaymentMethodsApiResponse.SERIALIZER.deserialize(jsonObject);
-        final PaymentMethod paymentMethod = adyenDropInPayment.getCardPaymentMethod(paymentMethodsApiResponse, name);
-        this.getCurrentActivity().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                final CardComponent cardComponent = new CardComponent(paymentMethod, cardConfiguration);
-                CardComponentBottomSheet cardComponentDialogFragment = new CardComponentBottomSheet(adyenDropInPayment, buttonTitle);
-                cardComponentDialogFragment.setPaymentMethod(paymentMethod);
-                cardComponentDialogFragment.setCardConfiguration(cardConfiguration);
-                cardComponentDialogFragment.setComponent(cardComponent);
-                cardComponentDialogFragment.setCancelable(true);
-                cardComponentDialogFragment.setShowsDialog(true);
-                cardComponentDialogFragment.show(((FragmentActivity) adyenDropInPayment.getCurrentActivity()).getSupportFragmentManager());
-            }
-        });
-    }
-
-    @ReactMethod
-    public void contractPaymentMethod(String paymentMethodsJson, Integer index) {
-        isDropIn = false;
-        final AdyenDropInPayment adyenDropInPayment = this;
-        JSONObject jsonObject = null;
-        try {
-            jsonObject = new JSONObject(paymentMethodsJson);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-
-        PaymentMethodsApiResponse paymentMethodsApiResponse = PaymentMethodsApiResponse.SERIALIZER.deserialize(jsonObject);
-        final RecurringDetail paymentMethod = this.getStoredCardPaymentMethod(paymentMethodsApiResponse, index);
-        WritableMap eventData = new WritableNativeMap();
-        WritableMap data = new WritableNativeMap();
-
-        WritableMap paymentMethodMap = new WritableNativeMap();
-        paymentMethodMap.putString("type", "scheme");
-        paymentMethodMap.putString("recurringDetailReference", paymentMethod.getId());
-        data.putMap("paymentMethod", paymentMethodMap);
-        data.putBoolean("storePaymentMethod", true);
-
-        eventData.putBoolean("isDropIn", this.isDropIn);
-        eventData.putString("env", this.envName);
-        eventData.putMap("data", data);
-        this.sendEvent(this.getReactApplicationContext(), "onPaymentSubmit", eventData);
-    }
-
-    @ReactMethod
-    public void storedCardPaymentMethod(String paymentMethodsJson, Integer index) {
-        isDropIn = false;
-        final AdyenDropInPayment adyenDropInPayment = this;
-        JSONObject jsonObject = null;
-        try {
-            jsonObject = new JSONObject(paymentMethodsJson);
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        PaymentMethodsApiResponse paymentMethodsApiResponse = PaymentMethodsApiResponse.SERIALIZER.deserialize(jsonObject);
-        CardConfiguration cardConfiguration =
-                new CardConfiguration.Builder(Locale.getDefault(), environment, publicKey)
-                        .build();
-        this.cardConfiguration = cardConfiguration;
-        RecurringDetail paymentMethod = this.getStoredCardPaymentMethod(paymentMethodsApiResponse, index);
-        this.getCurrentActivity().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                final CardComponent cardComponent = new CardComponent(paymentMethod, cardConfiguration);
-                CardComponentBottomSheet cardComponentDialogFragment = new CardComponentBottomSheet(adyenDropInPayment);
-                cardComponentDialogFragment.setPaymentMethod(paymentMethod);
-                cardComponentDialogFragment.setCardConfiguration(cardConfiguration);
-                cardComponentDialogFragment.setComponent(cardComponent);
-                cardComponentDialogFragment.setCancelable(true);
-                cardComponentDialogFragment.setShowsDialog(true);
-                cardComponentDialogFragment.show(((FragmentActivity) adyenDropInPayment.getCurrentActivity()).getSupportFragmentManager());
-
-            }
-        });
-    }
-
 
     @ReactMethod
     public void handlePaymentResult(String paymentJson) {
@@ -428,7 +412,6 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
                 e.printStackTrace();
             }
             eventData.putBoolean("isDropIn", this.isDropIn);
-            eventData.putString("env", this.envName);
             eventData.putMap("data", data);
             this.sendEvent(this.getReactApplicationContext(), "onPaymentSubmit", eventData);
         }
@@ -444,7 +427,6 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
         }
         WritableMap resultData = new WritableNativeMap();
         resultData.putBoolean("isDropIn", this.isDropIn);
-        resultData.putString("env", this.envName);
         resultData.putString("msg", "");
         resultData.putMap("data", data);
         this.sendEvent(this.getReactApplicationContext(), "onPaymentProvide", resultData);
@@ -453,7 +435,6 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
     void handlePaymentError(ComponentError componentError) {
         WritableMap resultData = new WritableNativeMap();
         resultData.putBoolean("isDropIn", this.isDropIn);
-        resultData.putString("env", this.envName);
         resultData.putString("msg", componentError.getErrorMessage());
         resultData.putString("error", componentError.getException().getMessage());
         this.sendEvent(this.getReactApplicationContext(), "onPaymentFail", resultData);
@@ -473,17 +454,6 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
         return null;
     }
 
-    RecurringDetail getStoredCardPaymentMethod(PaymentMethodsApiResponse
-                                                       paymentMethodsApiResponse, Integer index) {
-        List<RecurringDetail> recurringDetailList = paymentMethodsApiResponse.getStoredPaymentMethods();
-        if (recurringDetailList == null || recurringDetailList.size() <= 0) {
-            return null;
-        }
-        if (recurringDetailList.size() == 1) {
-            return recurringDetailList.get(0);
-        }
-        return recurringDetailList.get(index);
-    }
 
     private void sendEvent(ReactContext reactContext,
                            String eventName,

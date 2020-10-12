@@ -23,7 +23,7 @@ public class AdyenDropInPaymentService extends DropInService {
         if (AdyenDropInPayment.INSTANCE != null) {
             AdyenDropInPayment.INSTANCE.handlePaymentProvide(ActionComponentData.SERIALIZER.deserialize(jsonObject));
         }
-        return new CallResult(CallResult.ResultType.WAIT, jsonObject.toString());
+        return new CallResult(CallResult.ResultType.WAIT, "");
     }
 
     @Override
@@ -36,15 +36,13 @@ public class AdyenDropInPaymentService extends DropInService {
         if (AdyenDropInPayment.INSTANCE != null) {
             AdyenDropInPayment.INSTANCE.handlePaymentSubmit(paymentComponentState);
         }
-        return new CallResult(CallResult.ResultType.WAIT, jsonObject.toString());
+        return new CallResult(CallResult.ResultType.WAIT, "");
     }
 
     @Override
     protected void onHandleWork(Intent intent) {
         super.onHandleWork(intent);
-
     }
-
 
     public void handleAsyncCallback(CallResult callResult) {
         super.asyncCallback(callResult);

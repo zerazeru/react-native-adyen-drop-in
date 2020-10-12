@@ -14,79 +14,17 @@ const addListener = (key, listener) => {
 
 export default {
   /**
-   * Starting payment process.
-   * @returns {*}
-   */
-  configPayment(publicKey, env) {
-    return AdyenDropIn.configPayment(publicKey, env);
-  },
-  /**
-   * list paymentMethods
+   * Start Drop-in
    *
-   * @param {String} encodedToken
+   * @param {object} paymentMethodJson
+   * @param {object} config
    *
    * @returns {*}
    */
-  paymentMethods(paymentMethodJson) {
-    if (typeof paymentMethodJson === 'object') {
-      paymentMethodJson = JSON.stringify(paymentMethodJson);
-    }
-    this._validateParam(paymentMethodJson, 'paymentMethods', 'string');
-    return AdyenDropIn.paymentMethods(paymentMethodJson);
+  paymentMethods(paymentMethodJson, config) {
+    return AdyenDropIn.paymentMethods(paymentMethodJson, config);
   },
 
-  /**
-   * Popup card payment form
-   * @param {*} paymentMethodJson
-   * @param {*} name
-   * @param {*} showHolderField show holder name field
-   * @param {*} showStoreField show store card details toggle
-   * @param {*} buttonTitle content of the submit button
-   */
-  cardPaymentMethod(
-    paymentMethodJson,
-    name,
-    showHolderField,
-    showStoreField,
-    buttonTitle
-  ) {
-    if (typeof paymentMethodJson === 'object') {
-      paymentMethodJson = JSON.stringify(paymentMethodJson);
-    }
-    this._validateParam(paymentMethodJson, 'cardPaymentMethod', 'string');
-    showHolderField = showHolderField || false;
-    showStoreField = showStoreField || false;
-    buttonTitle = buttonTitle || '';
-    return AdyenDropIn.cardPaymentMethod(
-      paymentMethodJson,
-      name,
-      showHolderField,
-      showStoreField,
-      buttonTitle
-    );
-  },
-
-  /**
-   * use card paymentMethod
-   * @param paymentMethodJson
-   * @returns {*}
-   */
-  storedCardPaymentMethod(paymentMethodJson, index) {
-    if (typeof paymentMethodJson === 'object') {
-      paymentMethodJson = JSON.stringify(paymentMethodJson);
-    }
-    this._validateParam(paymentMethodJson, 'storedCardPaymentMethod', 'string');
-    index = index || 0;
-    return AdyenDropIn.storedCardPaymentMethod(paymentMethodJson, index);
-  },
-  contractPaymentMethod(paymentMethodJson, index) {
-    if (typeof paymentMethodJson === 'object') {
-      paymentMethodJson = JSON.stringify(paymentMethodJson);
-    }
-    this._validateParam(paymentMethodJson, 'contractPaymentMethod', 'string');
-    index = index || 0;
-    return AdyenDropIn.contractPaymentMethod(paymentMethodJson, index);
-  },
   /**
    * handle Action from payments
    * @param actionJson
@@ -106,14 +44,7 @@ export default {
     this._validateParam(paymentJson, 'handlePaymentResult', 'string');
     return AdyenDropIn.handlePaymentResult(paymentJson);
   },
-  encryptCard(cardNumber, expiryMonth, expiryYear, securityCode) {
-    return AdyenDropIn.encryptCard(
-      cardNumber,
-      expiryMonth,
-      expiryYear,
-      securityCode
-    );
-  },
+
   /**
    *  call when need to do more action
    */

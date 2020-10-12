@@ -2,11 +2,6 @@
 
 **React Native Adyen Drop-In** is a cross platform (Android & iOS) plugin enabling Adyen Drop-In integration in a React-Native project.
 
-## Current Adyen versions
-
-* Android: 3.4.0
-* iOS: ~>3.1.3
-
 ## Disclamer
 
 At the moment the implementation is very opiniated on the use case we encountered. Feel free to submit P.R.
@@ -22,26 +17,21 @@ This module uses autolinking and has not been tested on RN<0.60.
 ```jsx
 import AdyenDropIn from 'react-native-adyen-drop-in'
 
-// configures the public key used for encryption by the native library and sets the environment "test/live" that Adyen should be using.
-AdyenDropIn.configPayment(publicKey, env);
-
-// Launch a CardComponent
-AdyenDropIn.cardPaymentMethod(
-    paymentMethodJson, // accepted cards, use: https://docs.adyen.com/api-explorer/#/PaymentSetupAndVerificationService/paymentMethods result or provide yours.
-    name, // form name
-    showHolderField, // Display "Holder name" field
-    showStoreField, // Display toggle to save card for future payments
-    buttonTitle // Content on the call to action ("Pay" button)
-)
+const config = {
+    environment: 'test', // test / liveEurope / liveUnitedStates / liveAustralia
+    clientKey: 'xxxx_xxxxx...',
+    merchantAccount: 'XXXXX',
+    shopperLocale: 'en_US',
+    amount: {currency: 'EUR', value: 2500}, // 25€
+    scheme: {
+        publicKey: 'xxxxx...', // client encryption public key
+        showsHolderNameField: true,
+        showsStorePaymentMethodField: true,
+    },
+};
 
 // Supply Adyen with the available payment methods. Populate it from https://docs.adyen.com/api-explorer/#/PaymentSetupAndVerificationService/paymentMethods or supply custom JSON yourself.
-AdyenDropIn.paymentMethods(paymentMethodJson);
-
-// Use a stored payment method
-AdyenDropIn.storedCardPaymentMethod(paymentMethodJson, index)
-
-// Set contract payment method
-AdyenDropIn.contractPaymentMethod(paymentMethodJson, index)
+AdyenDropIn.paymentMethods(paymentMethodJson, config);
 
 // Handle further actions (like 3DS etc) asked by Adyen in (action key in /payments response - ie iDEAL, Bancontact)
 AdyenDropIn.handleAction(actionJson)
