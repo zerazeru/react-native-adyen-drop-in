@@ -268,6 +268,18 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
         }
     }
 
+    @ReactMethod
+    public void handleRedirectURL(String url) {
+        final AdyenDropInPayment adyenDropInPayment = this;
+        this.getCurrentActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                initActionComponents(adyenDropInPayment.getReactApplicationContext());
+                redirectComponent.handleRedirectResponse(Uri.parse(url));
+            }
+        });
+    }
+
     public void onNewIntent(Activity activity, Intent intent) {
         initActionComponents(this.getReactApplicationContext());
         Uri data = intent.getData();

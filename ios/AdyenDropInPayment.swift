@@ -38,6 +38,20 @@ class AdyenDropInPayment: RCTEventEmitter {
       "onPaymentSubmit",
     ]
   }
+
+  @objc func handlePaymentResult(_ paymentResult: String) {
+    dispatch {
+      self.dropInComponent?.stopLoading(withSuccess: true, completion: {
+        self.dropInComponent?.viewController.dismiss(animated: true)
+      })
+    }
+  }
+
+  @objc func handleRedirectURL(_ url: String) {
+    dispatch {
+      RedirectComponent.applicationDidOpen(from: URL(string: url)!)
+    }
+  }
 }
 
 extension AdyenDropInPayment: DropInComponentDelegate {
@@ -59,7 +73,7 @@ extension AdyenDropInPayment: DropInComponentDelegate {
     dropInComponent.payment = payment
 
     dispatch {
-      UIApplication.shared.delegate?.window??.rootViewController!.present(dropInComponent.viewController, animated: true)
+      UIApplication.shared.keyWindow?.rootViewController!.present(dropInComponent.viewController, animated: true)
     }
   }
 
@@ -88,7 +102,6 @@ extension AdyenDropInPayment: DropInComponentDelegate {
   }
 
   func didSubmit(_ data: PaymentComponentData, from component: DropInComponent) {
-    component.viewController.dismiss(animated: true)
     var paymentMethodMap: Dictionary? = data.paymentMethod.dictionaryRepresentation
     paymentMethodMap!["recurringDetailReference"] = paymentMethodMap!["storedPaymentMethodId"]
     let resultData = ["paymentMethod": paymentMethodMap, "storePaymentMethod": data.storePaymentMethod] as [String: Any]
@@ -181,20 +194,15 @@ extension AdyenDropInPayment: PaymentComponentDelegate {
 
 extension AdyenDropInPayment: ActionComponentDelegate {
   @objc func handleAction(_ actionJson: String) {
-    if(actionJson == nil||actionJson.count<=0){
-        return;
-    }
-    var parsedJson = actionJson.replacingOccurrences(of: "THREEDS2FINGERPRINT", with: "threeDS2Fingerprint")
-    parsedJson = actionJson.replacingOccurrences(of: "THREEDS2CHALLENGE", with: "threeDS2Challenge")
-    parsedJson = actionJson.replacingOccurrences(of: "REDIRECT", with: "redirect")
-    if(self.isDropIn!){
-        let actionData: Data? = parsedJson.data(using: String.Encoding.utf8) ?? Data()
-        let action = try? JSONDecoder().decode(Action.self, from: actionData!)
-        dropInComponent?.handle(action!)
+    let actionData: Data? = actionJson.data(using: String.Encoding.utf8) ?? Data()
+    let action: Action? = try! JSONDecoder().decode(Action.self, from: actionData!)
+
+    if (self.isDropIn!) {
+      dispatch {
+        self.dropInComponent?.handle(action!)
+      }
       return;
     }
-    let actionData: Data? = parsedJson.data(using: String.Encoding.utf8) ?? Data()
-    let action:Action? = try! JSONDecoder().decode(Action.self, from: actionData!)
 
     switch action {
     /// Indicates the user should be redirected to a URL.
@@ -221,8 +229,6 @@ extension AdyenDropInPayment: ActionComponentDelegate {
     default :
       break;
     }
-  }
-  @objc func handlePaymentResult(_ paymentResult: String) {
   }
 
   /// Invoked when the action component finishes

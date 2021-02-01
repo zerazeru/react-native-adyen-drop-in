@@ -1,4 +1,4 @@
-import { NativeEventEmitter, NativeModules } from 'react-native';
+import { NativeEventEmitter, NativeModules, Linking } from 'react-native';
 
 const AdyenDropIn = NativeModules.AdyenDropInPayment;
 const EventEmitter = new NativeEventEmitter(AdyenDropIn);
@@ -22,6 +22,10 @@ export default {
    * @returns {*}
    */
   paymentMethods(paymentMethodJson, config) {
+    if (!this.handleRedirectURL) {
+      this.handleRedirectURL = ({ url }) => AdyenDropIn.handleRedirectURL(url);
+      Linking.addEventListener('url', this.handleRedirectURL);
+    }
     return AdyenDropIn.paymentMethods(paymentMethodJson, config);
   },
 
