@@ -1,42 +1,32 @@
-//
-//  AdyenDropInPayment.swift
-//  ReactNativeAdyenDropin
-//
-//  Created by 罗立树 on 2019/9/27.
-//  Copyright © 2019 Facebook. All rights reserved.
-//
-
 import Adyen
 import Foundation
 import SafariServices
 
 @objc(AdyenDropInPayment)
 class AdyenDropInPayment: RCTEventEmitter {
+  var dropInComponent: DropInComponent?
+  var publicKey: String?
+  var configuration: DropInComponent.PaymentMethodsConfiguration?
+  var payment: Payment?
+
+  func requiresMainQueueSetup() -> Bool {
+    return true
+  }
+
+  override func supportedEvents() -> [String]! {
+    return [
+      "payment",
+      "payment-details",
+      "error",
+    ]
+  }
+
   func dispatch(_ closure: @escaping () -> Void) {
     if Thread.isMainThread {
       closure()
     } else {
       DispatchQueue.main.async(execute: closure)
     }
-  }
-
-  func requiresMainQueueSetup() -> Bool {
-    return true
-  }
-  var dropInComponent: DropInComponent?
-  var threeDS2Component: ThreeDS2Component?
-  var publicKey: String?
-  var isDropIn:Bool?
-  var envName: String?
-  var configuration: DropInComponent.PaymentMethodsConfiguration?
-  var payment: Payment?
-
-  override func supportedEvents() -> [String]! {
-    return [
-      "onPaymentFail",
-      "onPaymentProvide",
-      "onPaymentSubmit",
-    ]
   }
 
   @objc func handlePaymentResult(_ paymentResult: String) {
@@ -55,8 +45,7 @@ class AdyenDropInPayment: RCTEventEmitter {
 }
 
 extension AdyenDropInPayment: DropInComponentDelegate {
-  @objc func paymentMethods(_ paymentMethodsJson: NSDictionary, config: NSDictionary) {
-    self.isDropIn = true
+  @objc func startPayment(_ paymentMethodsJson: NSDictionary, config: NSDictionary) {
     var paymentMethods: PaymentMethods?
     do {
         let jsonData = try! JSONSerialization.data(withJSONObject : paymentMethodsJson, options: .prettyPrinted)
@@ -73,7 +62,12 @@ extension AdyenDropInPayment: DropInComponentDelegate {
     dropInComponent.payment = payment
 
     dispatch {
-      UIApplication.shared.keyWindow?.rootViewController!.present(dropInComponent.viewController, animated: true)
+      if var topController = UIApplication.shared.keyWindow?.rootViewController {
+        while let presentedViewController = topController.presentedViewController {
+          topController = presentedViewController
+        }
+        topController.present(dropInComponent.viewController, animated: true)
+      }
     }
   }
 
@@ -107,10 +101,8 @@ extension AdyenDropInPayment: DropInComponentDelegate {
     let resultData = ["paymentMethod": paymentMethodMap, "storePaymentMethod": data.storePaymentMethod] as [String: Any]
     
     sendEvent(
-      withName: "onPaymentSubmit",
+      withName: "payment",
       body: [
-        "isDropIn": self.isDropIn,
-        "env": self.envName,
         "data": resultData,
       ]
     )
@@ -125,10 +117,8 @@ extension AdyenDropInPayment: DropInComponentDelegate {
     component.viewController.dismiss(animated: true)
     let resultData = ["details": data.details.dictionaryRepresentation, "paymentData": data.paymentData] as [String: Any]
     sendEvent(
-      withName: "onPaymentProvide",
+      withName: "payment-details",
       body: [
-        "isDropIn": self.isDropIn,
-        "env": self.envName,
         "data": resultData,
       ]
     )
@@ -142,11 +132,9 @@ extension AdyenDropInPayment: DropInComponentDelegate {
   func didFail(with error: Error, from component: DropInComponent) {
     component.viewController.dismiss(animated: true)
     sendEvent(
-      withName: "onPaymentFail",
+      withName: "error",
       body: [
-        "isDropIn": self.isDropIn,
-        "env": self.envName,
-        "msg": error.localizedDescription,
+        "message": error.localizedDescription,
         "error": String(describing: error),
       ]
     )
@@ -165,10 +153,8 @@ extension AdyenDropInPayment: PaymentComponentDelegate {
     let resultData = ["paymentMethod": paymentMethodMap, "storePaymentMethod": data.storePaymentMethod] as [String: Any]
 
     sendEvent(
-      withName: "onPaymentSubmit",
+      withName: "payment",
       body: [
-        "isDropIn": self.isDropIn,
-        "env": self.envName,
         "data": resultData,
       ]
     )
@@ -181,11 +167,9 @@ extension AdyenDropInPayment: PaymentComponentDelegate {
   ///   - component: The payment component that failed.
   func didFail(with error: Error, from _: PaymentComponent) {
     sendEvent(
-      withName: "onPaymentFail",
+      withName: "error",
       body: [
-        "isDropIn": self.isDropIn,
-        "env": self.envName,
-        "msg": error.localizedDescription,
+        "message": error.localizedDescription,
         "error": String(describing: error),
       ]
     )
@@ -197,37 +181,8 @@ extension AdyenDropInPayment: ActionComponentDelegate {
     let actionData: Data? = actionJson.data(using: String.Encoding.utf8) ?? Data()
     let action: Action? = try! JSONDecoder().decode(Action.self, from: actionData!)
 
-    if (self.isDropIn!) {
-      dispatch {
-        self.dropInComponent?.handle(action!)
-      }
-      return;
-    }
-
-    switch action {
-    /// Indicates the user should be redirected to a URL.
-    case .redirect(let executeAction):
-       let redirectComponent:RedirectComponent = RedirectComponent(action: executeAction)
-       redirectComponent.delegate = self
-      break;
-      /// Indicates a 3D Secure device fingerprint should be taken.
-    case .threeDS2Fingerprint(let executeAction):
-      if(self.threeDS2Component == nil){
-        self.threeDS2Component = ThreeDS2Component()
-        self.threeDS2Component!.delegate = self
-      }
-      self.threeDS2Component!.handle(executeAction)
-      break;
-      /// Indicates a 3D Secure challenge should be presented.
-    case .threeDS2Challenge(let executeAction):
-      if(self.threeDS2Component == nil){
-        self.threeDS2Component = ThreeDS2Component()
-        self.threeDS2Component!.delegate = self
-      }
-      self.threeDS2Component?.handle(executeAction)
-      break;
-    default :
-      break;
+    dispatch {
+      self.dropInComponent?.handle(action!)
     }
   }
 
@@ -240,10 +195,8 @@ extension AdyenDropInPayment: ActionComponentDelegate {
   func didProvide(_ data: ActionComponentData, from _: ActionComponent) {
     let resultData = ["details": data.details.dictionaryRepresentation, "paymentData": data.paymentData] as [String: Any]
     sendEvent(
-      withName: "onPaymentProvide",
+      withName: "payment-details",
       body: [
-        "isDropIn": self.isDropIn as Any,
-        "env": self.envName as Any,
         "data": resultData,
       ]
     )
@@ -256,11 +209,9 @@ extension AdyenDropInPayment: ActionComponentDelegate {
   ///   - component: The component that failed.
   func didFail(with error: Error, from _: ActionComponent) {
     sendEvent(
-      withName: "onPaymentFail",
+      withName: "error",
       body: [
-        "isDropIn": self.isDropIn as Any,
-        "env": self.envName as Any,
-        "msg": error.localizedDescription,
+        "message": error.localizedDescription,
         "error": String(describing: error),
       ]
     )

@@ -1,14 +1,11 @@
 package com.reactnative.adyendropin;
 
+import org.json.JSONObject;
 import android.content.Intent;
-
 import com.adyen.checkout.base.ActionComponentData;
-import com.adyen.checkout.base.PaymentComponentState;
 import com.adyen.checkout.base.model.payments.request.PaymentComponentData;
 import com.adyen.checkout.dropin.service.CallResult;
 import com.adyen.checkout.dropin.service.DropInService;
-
-import org.json.JSONObject;
 
 public class AdyenDropInPaymentService extends DropInService {
     public AdyenDropInPaymentService() {
@@ -16,35 +13,28 @@ public class AdyenDropInPaymentService extends DropInService {
     }
 
     @Override
-    public CallResult makeDetailsCall(JSONObject jsonObject) {
-        if (jsonObject == null) {
+    public CallResult makePaymentsCall(JSONObject paymentComponentData) {
+        if (paymentComponentData == null) {
             return new CallResult(CallResult.ResultType.FINISHED, "");
         }
         if (AdyenDropInPayment.INSTANCE != null) {
-            AdyenDropInPayment.INSTANCE.handlePaymentProvide(ActionComponentData.SERIALIZER.deserialize(jsonObject));
+            AdyenDropInPayment.INSTANCE.triggerPaymentsCall(paymentComponentData);
         }
         return new CallResult(CallResult.ResultType.WAIT, "");
     }
 
     @Override
-    public CallResult makePaymentsCall(JSONObject jsonObject) {
-        if (jsonObject == null) {
+    public CallResult makeDetailsCall(JSONObject actionComponentData) {
+        if (actionComponentData == null) {
             return new CallResult(CallResult.ResultType.FINISHED, "");
         }
-        PaymentComponentData paymentComponentData = PaymentComponentData.SERIALIZER.deserialize(jsonObject);
-        PaymentComponentState paymentComponentState = new PaymentComponentState(paymentComponentData, true);
         if (AdyenDropInPayment.INSTANCE != null) {
-            AdyenDropInPayment.INSTANCE.handlePaymentSubmit(paymentComponentState);
+            AdyenDropInPayment.INSTANCE.triggerDetailsCall(actionComponentData);
         }
         return new CallResult(CallResult.ResultType.WAIT, "");
     }
 
-    @Override
-    protected void onHandleWork(Intent intent) {
-        super.onHandleWork(intent);
-    }
-
-    public void handleAsyncCallback(CallResult callResult) {
+    public void handleCallResult(CallResult callResult) {
         super.asyncCallback(callResult);
     }
 }

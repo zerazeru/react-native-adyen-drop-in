@@ -1,180 +1,62 @@
 package com.reactnative.adyendropin;
 
+import java.util.Iterator;
+import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 import android.app.Activity;
 import android.content.Intent;
-
+import android.content.Context;
+import android.content.ComponentName;
+import android.net.Uri;
+import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.Observer;
-
-import com.adyen.checkout.adyen3ds2.Adyen3DS2Component;
+import com.facebook.react.bridge.ReadableArray;
+import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.ReadableMapKeySetIterator;
+import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableNativeArray;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableNativeMap;
+import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReactContextBaseJavaModule;
+import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.ActivityEventListener;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.google.android.gms.wallet.WalletConstants;
 import com.adyen.checkout.base.ActionComponentData;
 import com.adyen.checkout.base.ComponentError;
-import com.adyen.checkout.base.PaymentComponentState;
-import com.adyen.checkout.base.component.BaseActionComponent;
 import com.adyen.checkout.base.model.PaymentMethodsApiResponse;
-import com.adyen.checkout.base.model.paymentmethods.PaymentMethod;
+import com.adyen.checkout.base.model.payments.request.PaymentComponentData;
 import com.adyen.checkout.base.model.payments.request.PaymentMethodDetails;
 import com.adyen.checkout.base.model.payments.response.Action;
-import com.adyen.checkout.base.model.payments.response.QrCodeAction;
-import com.adyen.checkout.base.model.payments.response.RedirectAction;
-import com.adyen.checkout.base.model.payments.response.Threeds2ChallengeAction;
-import com.adyen.checkout.base.model.payments.response.Threeds2FingerprintAction;
-import com.adyen.checkout.base.model.payments.response.VoucherAction;
 import com.adyen.checkout.base.model.payments.Amount;
 import com.adyen.checkout.base.util.PaymentMethodTypes;
-import com.adyen.checkout.card.CardComponent;
 import com.adyen.checkout.card.CardConfiguration;
 import com.adyen.checkout.googlepay.GooglePayConfiguration;
 import com.adyen.checkout.core.api.Environment;
-import com.adyen.checkout.cse.Card;
-import com.adyen.checkout.cse.EncryptedCard;
-import com.adyen.checkout.cse.Encryptor;
 import com.adyen.checkout.dropin.DropIn;
 import com.adyen.checkout.dropin.DropInConfiguration;
 import com.adyen.checkout.dropin.service.CallResult;
 import com.adyen.checkout.redirect.RedirectComponent;
-import com.adyen.checkout.redirect.RedirectUtil;
-import com.google.android.gms.wallet.WalletConstants;
-import com.facebook.react.bridge.*;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
-
-import android.net.Uri;
-import android.util.Log;
-
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-public class AdyenDropInPayment extends ReactContextBaseJavaModule {
+public class AdyenDropInPayment extends ReactContextBaseJavaModule implements ActivityEventListener {
     DropInConfiguration dropInConfiguration;
-    RedirectComponent redirectComponent;
-    Adyen3DS2Component adyen3DS2Component;
-    Environment environment;
-    boolean isDropIn;
-    static Map<String, BaseActionComponent> ACTION_COMPONENT_MAP = new ConcurrentHashMap<>();
+    long lastSubmitAt = 0;
+    static RedirectComponent redirectComponent;
+    static String redirectPaymentData;
     public static AdyenDropInPaymentService dropInService;
     public static AdyenDropInPayment INSTANCE = null;
-
 
     public AdyenDropInPayment(@NonNull ReactApplicationContext reactContext) {
         super(reactContext);
         AdyenDropInPayment.INSTANCE = this;
-    }
-
-    public static WritableMap convertJsonToMap(JSONObject jsonObject) throws JSONException {
-        WritableMap map = new WritableNativeMap();
-
-        Iterator<String> iterator = jsonObject.keys();
-        while (iterator.hasNext()) {
-            String key = iterator.next();
-            Object value = jsonObject.get(key);
-            if (value instanceof JSONObject) {
-                map.putMap(key, convertJsonToMap((JSONObject) value));
-            } else if (value instanceof JSONArray) {
-                map.putArray(key, convertJsonToArray((JSONArray) value));
-            } else if (value instanceof Boolean) {
-                map.putBoolean(key, (Boolean) value);
-            } else if (value instanceof Integer) {
-                map.putInt(key, (Integer) value);
-            } else if (value instanceof Double) {
-                map.putDouble(key, (Double) value);
-            } else if (value instanceof String) {
-                map.putString(key, (String) value);
-            } else {
-                map.putString(key, value.toString());
-            }
-        }
-        return map;
-    }
-
-    public static WritableArray convertJsonToArray(JSONArray array) throws JSONException {
-        WritableNativeArray result = new WritableNativeArray();
-        for (int i = 0; i < array.length(); i++) {
-            Object value = array.get(i);
-            if (value instanceof JSONObject) {
-                result.pushMap(convertJsonToMap((JSONObject) value));
-            } else if (value instanceof JSONArray) {
-                result.pushArray(convertJsonToArray((JSONArray) value));
-            } else if (value instanceof Boolean) {
-                result.pushBoolean((Boolean) value);
-            } else if (value instanceof Integer) {
-                result.pushInt((Integer) value);
-            } else if (value instanceof Double) {
-                result.pushDouble((Double) value);
-            } else if (value instanceof String) {
-                result.pushString((String) value);
-            } else {
-                result.pushString(value.toString());
-            }
-        }
-
-        return result;
-
-    }
-
-    public static JSONObject convertMapToJson(ReadableMap readableMap) throws JSONException {
-        JSONObject object = new JSONObject();
-        ReadableMapKeySetIterator iterator = readableMap.keySetIterator();
-        while (iterator.hasNextKey()) {
-            String key = iterator.nextKey();
-            switch (readableMap.getType(key)) {
-                case Null:
-                    object.put(key, JSONObject.NULL);
-                    break;
-                case Boolean:
-                    object.put(key, readableMap.getBoolean(key));
-                    break;
-                case Number:
-                    object.put(key, readableMap.getDouble(key));
-                    break;
-                case String:
-                    object.put(key, readableMap.getString(key));
-                    break;
-                case Map:
-                    object.put(key, convertMapToJson(readableMap.getMap(key)));
-                    break;
-                case Array:
-                    object.put(key, convertArrayToJson(readableMap.getArray(key)));
-                    break;
-            }
-        }
-        return object;
-    }
-
-    public static JSONArray convertArrayToJson(ReadableArray readableArray) throws JSONException {
-        JSONArray array = new JSONArray();
-        for (int i = 0; i < readableArray.size(); i++) {
-            switch (readableArray.getType(i)) {
-                case Null:
-                    break;
-                case Boolean:
-                    array.put(readableArray.getBoolean(i));
-                    break;
-                case Number:
-                    array.put(readableArray.getDouble(i));
-                    break;
-                case String:
-                    array.put(readableArray.getString(i));
-                    break;
-                case Map:
-                    array.put(convertMapToJson(readableArray.getMap(i)));
-                    break;
-                case Array:
-                    array.put(convertArrayToJson(readableArray.getArray(i)));
-                    break;
-            }
-        }
-        return array;
+        reactContext.addActivityEventListener(this);
     }
 
     void buildConfig(ReadableMap configuration) throws JSONException {
@@ -244,8 +126,7 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void paymentMethods(ReadableMap paymentMethodsJson, ReadableMap config) throws JSONException {
-        isDropIn = true;
+    public void startPayment(ReadableMap paymentMethodsJson, ReadableMap config) throws JSONException {
         buildConfig(config);
 
         JSONObject jsonObject = convertMapToJson(paymentMethodsJson);
@@ -261,147 +142,111 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void handlePaymentResult(String paymentJson) {
-        if (isDropIn) {
+        if (dropInService != null) {
             CallResult callResult = new CallResult(CallResult.ResultType.FINISHED, paymentJson);
-            dropInService.handleAsyncCallback(callResult);
-            return;
+            dropInService.handleCallResult(callResult);
+        }
+    }
+
+    @ReactMethod
+    public void handleAction(String actionJson) throws JSONException {
+        if (dropInService != null) {
+            Action action = Action.SERIALIZER.deserialize(new JSONObject(actionJson));
+            withRedirectComponent(new Runnable() {
+                @Override
+                public void run() {
+                    if (AdyenDropInPayment.redirectComponent.canHandleAction(action)) {
+                        AdyenDropInPayment.redirectPaymentData = action.getPaymentData();
+                    }
+                }
+            });
+            CallResult callResult = new CallResult(CallResult.ResultType.ACTION, actionJson);
+            dropInService.handleCallResult(callResult);
         }
     }
 
     @ReactMethod
     public void handleRedirectURL(String url) {
-        final AdyenDropInPayment adyenDropInPayment = this;
-        this.getCurrentActivity().runOnUiThread(new Runnable() {
+        withRedirectComponent(new Runnable() {
             @Override
             public void run() {
-                initActionComponents(adyenDropInPayment.getReactApplicationContext());
-                redirectComponent.handleRedirectResponse(Uri.parse(url));
+                AdyenDropInPayment.redirectComponent.handleRedirectResponse(Uri.parse(url));
             }
         });
     }
 
-    public void onNewIntent(Activity activity, Intent intent) {
-        initActionComponents(this.getReactApplicationContext());
-        Uri data = intent.getData();
-        if (data != null && data.toString().startsWith(RedirectUtil.REDIRECT_RESULT_SCHEME)) {
-            redirectComponent.handleRedirectResponse(data);
-        }
-    }
-
-    public RedirectComponent getRedirectComponent() {
-        return redirectComponent;
-    }
-
-    public void setRedirectComponent(RedirectComponent redirectComponent) {
-        this.redirectComponent = redirectComponent;
-    }
-
-    BaseActionComponent getActionComponent(Action action) {
-        if (ACTION_COMPONENT_MAP.containsKey(action.getType())) {
-            return ACTION_COMPONENT_MAP.get(action.getType());
-        }
-        BaseActionComponent actionComponent = null;
-        switch (action.getType()) {
-            case RedirectAction.ACTION_TYPE:
-                actionComponent = RedirectComponent.PROVIDER.get((FragmentActivity) this.getCurrentActivity());
-                break;
-            case Threeds2FingerprintAction.ACTION_TYPE:
-                actionComponent = Adyen3DS2Component.PROVIDER.get((FragmentActivity) this.getCurrentActivity());
-                break;
-            case Threeds2ChallengeAction.ACTION_TYPE:
-                actionComponent = Adyen3DS2Component.PROVIDER.get((FragmentActivity) this.getCurrentActivity());
-                break;
-            case QrCodeAction.ACTION_TYPE:
-                actionComponent = Adyen3DS2Component.PROVIDER.get((FragmentActivity) this.getCurrentActivity());
-                break;
-            case VoucherAction.ACTION_TYPE:
-                actionComponent = Adyen3DS2Component.PROVIDER.get((FragmentActivity) this.getCurrentActivity());
-                break;
-            default:
-                break;
-        }
-        if (actionComponent != null) {
-
-            ACTION_COMPONENT_MAP.put(action.getType(), actionComponent);
-
-
-        }
-        return actionComponent;
-
-    }
-
-    void initActionComponents(ReactApplicationContext reactContext) {
+    void withRedirectComponent(Runnable callback) {
         final AdyenDropInPayment adyenDropInPayment = this;
-        FragmentActivity currentActivity = (FragmentActivity) reactContext.getCurrentActivity();
-        if (redirectComponent == null) {
-            redirectComponent = RedirectComponent.PROVIDER.get(currentActivity);
-            redirectComponent.observe(currentActivity, new Observer<ActionComponentData>() {
-
-                @Override
-                public void onChanged(ActionComponentData actionComponentData) {
-                    adyenDropInPayment.handlePaymentProvide(actionComponentData);
-                }
-            });
-            redirectComponent.observeErrors(currentActivity, new Observer<ComponentError>() {
-                @Override
-                public void onChanged(ComponentError componentError) {
-                    adyenDropInPayment.handlePaymentError(componentError);
-                }
-            });
-        }
-        if (adyen3DS2Component == null) {
-            adyen3DS2Component = Adyen3DS2Component.PROVIDER.get(currentActivity);
-            adyen3DS2Component.observe(currentActivity, new Observer<ActionComponentData>() {
-
-                @Override
-                public void onChanged(ActionComponentData actionComponentData) {
-                    adyenDropInPayment.handlePaymentProvide(actionComponentData);
-                }
-            });
-            adyen3DS2Component.observeErrors(currentActivity, new Observer<ComponentError>() {
-                @Override
-                public void onChanged(ComponentError componentError) {
-                    adyenDropInPayment.handlePaymentError(componentError);
-                }
-            });
-        }
-    }
-
-    @ReactMethod
-    public void handleAction(String actionJson) {
-
-        if (isDropIn) {
-            CallResult callResult = new CallResult(CallResult.ResultType.ACTION, actionJson);
-            dropInService.handleAsyncCallback(callResult);
-            return;
-        }
-        if (actionJson == null || actionJson.length() <= 0) {
-            return;
-        }
-
-        try {
-            final AdyenDropInPayment adyenDropInPayment = this;
-            Action action = Action.SERIALIZER.deserialize(new JSONObject(actionJson));
-
-
-            this.getCurrentActivity().runOnUiThread(new Runnable() {
+        FragmentActivity currentActivity = (FragmentActivity) this.getCurrentActivity();
+        if (AdyenDropInPayment.redirectComponent != null) {
+            if (callback != null) {
+                currentActivity.runOnUiThread(callback);
+            }
+        } else {
+            AdyenDropInPayment.redirectComponent = RedirectComponent.PROVIDER.get(currentActivity);
+            currentActivity.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    initActionComponents(adyenDropInPayment.getReactApplicationContext());
-                    BaseActionComponent actionComponent = adyenDropInPayment.getActionComponent(action);
-                    if (actionComponent != null) {
-                        actionComponent.handleAction(adyenDropInPayment.getCurrentActivity(), action);
+                    LifecycleOwner lifecycleOwner = (LifecycleOwner) adyenDropInPayment.getCurrentActivity();
+                    AdyenDropInPayment.redirectComponent.observe(lifecycleOwner, new Observer<ActionComponentData>() {
+                        @Override
+                        public void onChanged(ActionComponentData actionComponentData) {
+                            Context context = adyenDropInPayment.getCurrentActivity();
+                            JSONObject details = ActionComponentData.SERIALIZER.serialize(actionComponentData);
+                            // ComponentName componentName = adyenDropInPayment.dropInConfiguration.serviceComponentName;
+                            ComponentName componentName = new ComponentName(
+                                context.getPackageName(),
+                                AdyenDropInPaymentService.class.getName()
+                            );
+
+                            // workaround to pass paymentData correctly
+                            if (actionComponentData.getPaymentData() == null) {
+                                ActionComponentData copy = ActionComponentData.SERIALIZER.deserialize(details);
+                                copy.setPaymentData(AdyenDropInPayment.redirectPaymentData);
+                                details = ActionComponentData.SERIALIZER.serialize(copy);
+                            }
+
+                            AdyenDropInPaymentService.Companion.requestDetailsCall(
+                                context,
+                                details,
+                                componentName
+                            );
+                        }
+                    });
+                    AdyenDropInPayment.redirectComponent.observeErrors(lifecycleOwner, new Observer<ComponentError>() {
+                        @Override
+                        public void onChanged(ComponentError componentError) {
+                            adyenDropInPayment.handlePaymentError(componentError);
+                        }
+                    });
+                    if (callback != null) {
+                        callback.run();
                     }
                 }
             });
-
-
-        } catch (JSONException e) {
-            e.printStackTrace();
         }
-
-
     }
+
+    @Override
+    public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent data) {
+        if (requestCode == DropIn.DROP_IN_REQUEST_CODE) {
+            WritableMap resultData = new WritableNativeMap();
+            if (resultCode == Activity.RESULT_CANCELED) {
+                resultData.putString("result", "canceled");
+                // if (data != null && data.hasExtra(DropIn.ERROR_REASON_KEY)) {
+                //     resultData.putString("error", data.getStringExtra(DropIn.ERROR_REASON_KEY));
+                // }
+            } else if (resultCode == Activity.RESULT_OK) {
+                resultData.putString("result", "ok");
+            } else {
+                resultData.putString("result", "unknown");
+            }
+            this.sendEvent("android-activity-result", resultData);
+        }
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {}
 
     @NonNull
     @Override
@@ -409,69 +254,146 @@ public class AdyenDropInPayment extends ReactContextBaseJavaModule {
         return AdyenDropInPayment.class.getSimpleName();
     }
 
+    public void triggerPaymentsCall(JSONObject paymentComponentData) {
+        // workaround to prevent multi-submit
+        long now = System.nanoTime();
+        if (now - lastSubmitAt < 3000000000L) return;
+        lastSubmitAt = now;
 
-    public void handlePaymentSubmit(PaymentComponentState paymentComponentState) {
-        if (paymentComponentState.isValid()) {
-            WritableMap eventData = new WritableNativeMap();
-            WritableMap data = new WritableNativeMap();
-            PaymentMethodDetails paymentMethodDetails = paymentComponentState.getData().getPaymentMethod();
-            JSONObject jsonObject = PaymentMethodDetails.SERIALIZER.serialize(paymentMethodDetails);
-            try {
-                WritableMap paymentMethodMap = convertJsonToMap(jsonObject);
-                data.putMap("paymentMethod", paymentMethodMap);
-                data.putBoolean("storePaymentMethod", paymentComponentState.getData().isStorePaymentMethodEnable());
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-            eventData.putBoolean("isDropIn", this.isDropIn);
-            eventData.putMap("data", data);
-            this.sendEvent(this.getReactApplicationContext(), "onPaymentSubmit", eventData);
-        }
-
-    }
-
-    public void handlePaymentProvide(ActionComponentData actionComponentData) {
-        WritableMap data = null;
         try {
-            data = convertJsonToMap(ActionComponentData.SERIALIZER.serialize(actionComponentData));
+            WritableMap eventData = new WritableNativeMap();
+            eventData.putMap("data", convertJsonToMap(paymentComponentData));
+            this.sendEvent("payment", eventData);
         } catch (JSONException e) {
             e.printStackTrace();
         }
-        WritableMap resultData = new WritableNativeMap();
-        resultData.putBoolean("isDropIn", this.isDropIn);
-        resultData.putString("msg", "");
-        resultData.putMap("data", data);
-        this.sendEvent(this.getReactApplicationContext(), "onPaymentProvide", resultData);
+    }
+
+    public void triggerDetailsCall(JSONObject actionComponentData) {
+        try {
+            WritableMap eventData = new WritableNativeMap();
+            eventData.putMap("data", convertJsonToMap(actionComponentData));
+            this.sendEvent("payment-details", eventData);
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
     }
 
     void handlePaymentError(ComponentError componentError) {
         WritableMap resultData = new WritableNativeMap();
-        resultData.putBoolean("isDropIn", this.isDropIn);
-        resultData.putString("msg", componentError.getErrorMessage());
+        resultData.putString("message", componentError.getErrorMessage());
         resultData.putString("error", componentError.getException().getMessage());
-        this.sendEvent(this.getReactApplicationContext(), "onPaymentFail", resultData);
+        this.sendEvent("error", resultData);
     }
 
-    PaymentMethod getCardPaymentMethod(PaymentMethodsApiResponse
-                                               paymentMethodsApiResponse, String name) {
-        List<PaymentMethod> paymentMethodList = paymentMethodsApiResponse.getPaymentMethods();
-        if (name == null || name.trim().length() <= 0) {
-            name = "Credit Card";
-        }
-        for (PaymentMethod paymentMethod : paymentMethodList) {
-            if (paymentMethod.getName().equalsIgnoreCase(name)) {
-                return paymentMethod;
+    private void sendEvent(String eventName, @Nullable WritableMap params) {
+        this.getReactApplicationContext()
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+            .emit(eventName, params);
+    }
+
+    public static WritableMap convertJsonToMap(JSONObject jsonObject) throws JSONException {
+        WritableMap map = new WritableNativeMap();
+
+        Iterator<String> iterator = jsonObject.keys();
+        while (iterator.hasNext()) {
+            String key = iterator.next();
+            Object value = jsonObject.get(key);
+            if (value instanceof JSONObject) {
+                map.putMap(key, convertJsonToMap((JSONObject) value));
+            } else if (value instanceof JSONArray) {
+                map.putArray(key, convertJsonToArray((JSONArray) value));
+            } else if (value instanceof Boolean) {
+                map.putBoolean(key, (Boolean) value);
+            } else if (value instanceof Integer) {
+                map.putInt(key, (Integer) value);
+            } else if (value instanceof Double) {
+                map.putDouble(key, (Double) value);
+            } else if (value instanceof String) {
+                map.putString(key, (String) value);
+            } else {
+                map.putString(key, value.toString());
             }
         }
-        return null;
+        return map;
     }
 
+    public static WritableArray convertJsonToArray(JSONArray array) throws JSONException {
+        WritableNativeArray result = new WritableNativeArray();
+        for (int i = 0; i < array.length(); i++) {
+            Object value = array.get(i);
+            if (value instanceof JSONObject) {
+                result.pushMap(convertJsonToMap((JSONObject) value));
+            } else if (value instanceof JSONArray) {
+                result.pushArray(convertJsonToArray((JSONArray) value));
+            } else if (value instanceof Boolean) {
+                result.pushBoolean((Boolean) value);
+            } else if (value instanceof Integer) {
+                result.pushInt((Integer) value);
+            } else if (value instanceof Double) {
+                result.pushDouble((Double) value);
+            } else if (value instanceof String) {
+                result.pushString((String) value);
+            } else {
+                result.pushString(value.toString());
+            }
+        }
 
-    private void sendEvent(ReactContext reactContext,
-                           String eventName,
-                           @Nullable WritableMap params) {
-        reactContext
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit(eventName, params);
+        return result;
+    }
+
+    public static JSONObject convertMapToJson(ReadableMap readableMap) throws JSONException {
+        JSONObject object = new JSONObject();
+        ReadableMapKeySetIterator iterator = readableMap.keySetIterator();
+        while (iterator.hasNextKey()) {
+            String key = iterator.nextKey();
+            switch (readableMap.getType(key)) {
+                case Null:
+                    object.put(key, JSONObject.NULL);
+                    break;
+                case Boolean:
+                    object.put(key, readableMap.getBoolean(key));
+                    break;
+                case Number:
+                    object.put(key, readableMap.getDouble(key));
+                    break;
+                case String:
+                    object.put(key, readableMap.getString(key));
+                    break;
+                case Map:
+                    object.put(key, convertMapToJson(readableMap.getMap(key)));
+                    break;
+                case Array:
+                    object.put(key, convertArrayToJson(readableMap.getArray(key)));
+                    break;
+            }
+        }
+        return object;
+    }
+
+    public static JSONArray convertArrayToJson(ReadableArray readableArray) throws JSONException {
+        JSONArray array = new JSONArray();
+        for (int i = 0; i < readableArray.size(); i++) {
+            switch (readableArray.getType(i)) {
+                case Null:
+                    break;
+                case Boolean:
+                    array.put(readableArray.getBoolean(i));
+                    break;
+                case Number:
+                    array.put(readableArray.getDouble(i));
+                    break;
+                case String:
+                    array.put(readableArray.getString(i));
+                    break;
+                case Map:
+                    array.put(convertMapToJson(readableArray.getMap(i)));
+                    break;
+                case Array:
+                    array.put(convertArrayToJson(readableArray.getArray(i)));
+                    break;
+            }
+        }
+        return array;
     }
 }

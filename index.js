@@ -1,16 +1,7 @@
 import { NativeEventEmitter, NativeModules, Linking } from 'react-native';
 
 const AdyenDropIn = NativeModules.AdyenDropInPayment;
-const EventEmitter = new NativeEventEmitter(AdyenDropIn);
-const eventMap = {};
-const addListener = (key, listener) => {
-  if (!eventMap[key]) {
-    eventMap[key] = [];
-  }
-  const ee = EventEmitter.addListener(key, listener);
-  eventMap[key].push(ee);
-  return ee;
-};
+const eventEmitter = new NativeEventEmitter(AdyenDropIn);
 
 export default {
   /**
@@ -21,108 +12,36 @@ export default {
    *
    * @returns {*}
    */
-  paymentMethods(paymentMethodJson, config) {
+  startPayment(paymentMethodJson, config) {
     if (!this.handleRedirectURL) {
       this.handleRedirectURL = ({ url }) => AdyenDropIn.handleRedirectURL(url);
       Linking.addEventListener('url', this.handleRedirectURL);
     }
-    return AdyenDropIn.paymentMethods(paymentMethodJson, config);
+    return AdyenDropIn.startPayment(paymentMethodJson, config);
   },
 
   /**
-   * handle Action from payments
-   * @param actionJson
+   * Handle server response
+   * @param {string|object} response
    * @returns {*}
    */
-  handleAction(actionJson) {
-    if (typeof actionJson === 'object') {
-      actionJson = JSON.stringify(actionJson);
-    }
-    this._validateParam(actionJson, 'handleAction', 'string');
-    return AdyenDropIn.handleAction(actionJson);
-  },
-  handlePaymentResult(paymentJson) {
-    if (typeof paymentJson === 'object') {
-      paymentJson = JSON.stringify(paymentJson);
-    }
-    this._validateParam(paymentJson, 'handlePaymentResult', 'string');
-    return AdyenDropIn.handlePaymentResult(paymentJson);
-  },
-
-  /**
-   *  call when need to do more action
-   */
-  onPaymentProvide(mOnPaymentProvide) {
-    this._validateParam(mOnPaymentProvide, 'onPaymentProvide', 'function');
-    return addListener('onPaymentProvide', e => {
-      mOnPaymentProvide(e);
-    });
-  },
-  // /**
-  //  * call when cancel a payment
-  //  * @param mOnPaymentCancel
-  //  */
-  // onPaymentCancel(mOnPaymentCancel) {
-  //     this._validateParam(
-  //         mOnPaymentCancel,
-  //         'onPaymentCancel',
-  //         'function',
-  //     );
-  //     onPaymentCancelListener = events.addListener(
-  //         'mOnPaymentCancel',
-  //         e => {
-  //             mOnPaymentCancel(e);
-  //         },
-  //     );
-  // },
-  /**
-   * call when payment fail
-   * @param {mOnError} mOnError
-   */
-  onPaymentFail(mOnPaymentFail) {
-    this._validateParam(mOnPaymentFail, 'onPaymentFail', 'function');
-    return addListener('onPaymentFail', e => {
-      mOnPaymentFail(e);
-    });
-  },
-  /**
-   * call when payment submit ,send to server do payments
-   */
-  onPaymentSubmit(mOnPaymentSubmit) {
-    this._validateParam(mOnPaymentSubmit, 'onPaymentSubmit', 'function');
-    return addListener('onPaymentSubmit', e => {
-      mOnPaymentSubmit(e);
-    });
-  },
-
-  /**
-   * @param {*} param
-   * @param {String} methodName
-   * @param {String} requiredType
-   * @private
-   */
-  _validateParam(param, methodName, requiredType) {
-    if (typeof param !== requiredType) {
-      throw new Error(
-        `Error: AdyenDropIn.${methodName}() requires a ${
-          requiredType === 'function' ? 'callback function' : requiredType
-        } but got a ${typeof param}`
-      );
+  handleResponse(response) {
+    if (!response) return;
+    if (typeof response === 'string') response = JSON.parse(response);
+    if (response.action) {
+      return AdyenDropIn.handleAction(JSON.stringify(response.action));
+    } else {
+      return AdyenDropIn.handlePaymentResult(JSON.stringify(response));
     }
   },
-  events: EventEmitter,
-  removeListeners() {
-    Object.keys(eventMap).forEach(eventKey => {
-      if (!eventMap[eventKey]) {
-        return;
-      }
-      eventMap[eventKey].forEach(ee => {
-        if (!ee.remove) {
-          return;
-        }
-        ee.remove();
-      });
-      eventMap[eventKey] = undefined;
-    });
-  }
+  addListener(eventName, listener) {
+    return eventEmitter.addListener(eventName, listener);
+  },
+  listenerCount(eventName) {
+    if (eventEmitter.listenerCount) {
+      return eventEmitter.listenerCount(eventName);
+    } else {
+      return eventEmitter.listeners(eventName).length;
+    }
+  },
 };

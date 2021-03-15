@@ -1,6 +1,6 @@
-# React Native Adyen Drop-In
+# React Native Adyen Drop-in
 
-**React Native Adyen Drop-In** is a cross platform (Android & iOS) plugin enabling Adyen Drop-In integration in a React-Native project.
+**React Native Adyen Drop-in** is a cross platform (Android & iOS) plugin enabling Adyen Drop-in integration in a React Native project.
 
 ## Disclamer
 
@@ -15,7 +15,7 @@ This module uses autolinking and has not been tested on RN<0.60.
 ## API
 
 ```jsx
-import AdyenDropIn from 'react-native-adyen-drop-in'
+import AdyenDropIn from 'react-native-adyen-drop-in';
 
 const config = {
     environment: 'test', // test / liveEurope / liveUnitedStates / liveAustralia
@@ -30,46 +30,17 @@ const config = {
     },
 };
 
-// Supply Adyen with the available payment methods. Populate it from https://docs.adyen.com/api-explorer/#/PaymentSetupAndVerificationService/paymentMethods or supply custom JSON yourself.
-AdyenDropIn.paymentMethods(paymentMethodJson, config);
+// Open the Drop-in component by providing a config and the
+// available payment methods.
+AdyenDropIn.startPayment(paymentMethodJson, config);
 
-// Handle further actions (like 3DS etc) asked by Adyen in (action key in /payments response - ie iDEAL, Bancontact)
-AdyenDropIn.handleAction(actionJson)
-
-// Notify Adyen Drop In of the payment result.
-AdyenDropIn.handlePaymentResult(paymentResult)
-
-// Register a listener on Adyen3DS2Component and RedirectComponent responses
-AdyenDropIn.onPaymentProvide((response) => {})
-/**
- * response {
- *  isDropIn: boolean,
- *  env: string,
- *  msg: string,
- *  data: {
- *      paymentData,
- *      details,
- *  }
- * }
- */
-
-// Register a listener on payment failures
-AdyenDropIn.onPaymentFail((error) => {})
-/**
- * error {
- *  isDropIn: boolean,
- *  env: string,
- *  msg: string, // error message
- *  error: string // exception message
- * }
- */
+// Provide the Drop-in component the response of your server.
+AdyenDropIn.handleResponse(response)
 
 // Register a listener when payment form is submitted
-AdyenDropIn.onPaymentSubmit((response) => {})
+AdyenDropIn.addListener('payment', response => {})
 /**
  * response {
- *  isDropIn: boolean,
- *  env: string,
  *  data: {
  *      paymentMethod: {
  *          type: "scheme",
@@ -80,6 +51,25 @@ AdyenDropIn.onPaymentSubmit((response) => {})
  * }
  */
 
+// Register a listener on Adyen3DS2Component and RedirectComponent responses
+AdyenDropIn.addListener('payment-details', response => {})
+/**
+ * response {
+ *  data: {
+ *      paymentData,
+ *      details,
+ *  }
+ * }
+ */
+
+// Register a listener on payment failures
+AdyenDropIn.addListener('error', error => {})
+/**
+ * error {
+ *  message: string, // error message
+ *  error: string // exception message
+ * }
+ */
 
 ```
 
